@@ -24,15 +24,16 @@ class LambdaDatasciPerfStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        self.add_transform('SlicWatch-v3')
-        self.template_options.metadata = {
-            'slicWatch': {
-                'enabled': True,
-                'alarms': {
-                    'enabled': False
+        if self.node.try_get_context('slicWatch.enabled'):
+            self.add_transform('SlicWatch-v3')
+            self.template_options.metadata = {
+                'slicWatch': {
+                    'enabled': True,
+                    'alarms': {
+                        'enabled': False
+                    }
                 }
             }
-        }
 
         runtimes = {
             "Python38": {

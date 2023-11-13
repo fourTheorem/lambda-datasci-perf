@@ -1,6 +1,12 @@
-# AWS Lambda Python Data Science Cold Start Evaluation
+# AWS Lambda ️Python Data Science Cold Start Evaluation 🐍 ☁️ 🐢
 
 Comparing cold starts for packaging methods and Python versions.
+
+| | | |
+|-- |-- |-- |
+|![](./timings_1.png) |![](./timings_2.png) |![](./timings_3.png) |
+
+See below for more information on visualising the outcome.
 
 ## Rationale
 
@@ -22,6 +28,8 @@ Common workarounds to this are:
 3. Using Lambda Layers for these dependencies. Layers still count towards the restrictive 250MB limit, but layer providers can handle the stripping and minimisation of packages so you don't have to.
 
 Common concerns about these approaches include assumptions about the relative cold start overhead of each one. The CDK project in this repository is designed to compare this for each approach using a realistic workload.
+
+First, what other factors might we consider before evaluating images vs. ZIP on performance alone?
 
 ## Pros and Cons of various packaging approach
 
@@ -60,6 +68,7 @@ Three different packaging methods are evaluated:
 ```bash
 npm install
 pip install -r requirements.txt -r requirements-dev.txt
+cdk bootstrap
 cdk deploy
 ```
 
@@ -84,8 +93,16 @@ You can prevent warm starts from previous runs by running the `ensure-cold.py` s
 ```
 
 ## Monitoring results
-This stack provides a CloudWatch dashboard for monitoring execution duration, invocations and cold starts.
+1. This stack provides a CloudWatch dashboard for monitoring execution duration, invocations and cold starts. ![](./dashboard_segment.png). The dashboard can be accessed from CloudWatch by selecting `Dashboards -> LambdaDatasciPerfDashboard`
+2. A Jupyter Notebook is available to visualise the cold start distribution for different packaging methods: [cold_start_viz.ipynb](./cold_start_viz.ipynb). Here, you can see the images shown at the top of the page, showing:
+   1. Greater cold starts for container image deployments in some (rarer) cases, usually following deployment of a new function/image
+   2. Much better cold starts for container image deployments compared to ZIP-packaged functions in the majority of cases
+   3. The distribution of all function cold starts for all batches of invocations over the course of a day looked like this: ![](./distribution.png)
 
+## Explanation
+Why are container image function cold starts usually so much better than ZIP-packaged images? The answer is outlined in the paper, _[On-demand Container Loading in AWS Lambda (Marc Brooker, Mike Danilov, Chris Greenwood, Phil Piwonka)](https://arxiv.org/abs/2305.13162)_ describing the extensive optimisations that we avail of when using Lambda's container image deployment method. 
 
+In brief, container image deployments use number of tiered caches that identify reused files across images, including files used in multiple customers' images! This can eliminate the need to load most of a container image's bytes from the origin (S3)!
 
-
+## License
+[MIT](./LICENSE)
