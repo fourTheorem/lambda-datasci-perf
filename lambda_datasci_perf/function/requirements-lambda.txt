@@ -1,0 +1,6 @@
+pandas
+pyarrow
+numpy
+s3fs
+aws_lambda_powertools
+aws_xray_sdk
