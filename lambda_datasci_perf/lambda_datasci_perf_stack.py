@@ -34,8 +34,6 @@ class LambdaDatasciPerfStack(Stack):
             }
         }
 
-        queue = sqs.Queue(self, "LambdaDatasciPerfQueue", visibility_timeout=Duration.seconds(6 * TIMEOUT_SECONDS))
-
         runtimes = {
             "Python38": {
                 "Runtime": lamb.Runtime.PYTHON_3_8,
@@ -153,9 +151,6 @@ class LambdaDatasciPerfStack(Stack):
                 function_name=function_name,
             )
 
-        for function in functions_by_name.values():
-            function.add_event_source(event_sources.SqsEventSource(queue, batch_size=1))
-
         dash = cloudwatch.Dashboard(
             self, "LambdaDatasciPerfDashboard", 
             dashboard_name="LambdaDatasciPerfDashboard",
@@ -234,15 +229,4 @@ class LambdaDatasciPerfStack(Stack):
             metrics=[functions_by_name[function_name].metric(
                 statistic=cloudwatch.Statistic.MAXIMUM.name, label=function_name, metric_name='ConcurrentExecutions'
             ) for function_name in sorted(functions_by_name.keys())]
-        ))
-
-        dash.add_widgets(cloudwatch.GraphWidget(
-            title="Queue Message Count",
-            set_period_to_time_range=True,
-            width=24,
-            height=6,
-            left=[
-                queue.metric_approximate_number_of_messages_visible(statistic=cloudwatch.Statistic.MAXIMUM.name, label='Visible'),
-                queue.metric_approximate_number_of_messages_not_visible(statistic=cloudwatch.Statistic.MAXIMUM.name, label='Not Visible')
-            ]
         ))

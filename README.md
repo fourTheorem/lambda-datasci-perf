@@ -21,7 +21,7 @@ Common workarounds to this are:
 2. Stripping non-essential parts of packages before deployment. This includes stripping debug symbols from shared libraries (`.so`), removing unit tests and documentation, and removing the `.pyc` precompiled bytecode
 3. Using Lambda Layers for these dependencies. Layers still count towards the restrictive 250MB limit, but layer providers can handle the stripping and minimisation of packages so you don't have to.
 
-Common concerns about these approaches include assumptions about the releative cold start overhead of each one. The CDK project in this repository is designed to compare this for each approach using a realistic workload.
+Common concerns about these approaches include assumptions about the relative cold start overhead of each one. The CDK project in this repository is designed to compare this for each approach using a realistic workload.
 
 ## Pros and Cons of various packaging approach
 
@@ -37,8 +37,7 @@ Common concerns about these approaches include assumptions about the releative c
 | | |
 |**Container Image** |⬆️ 10 GB limit | ⬇️ Runtime security and maintenance is your responsibility |
 | |⬆️ Easier if you have existing container infrastructure  | ⬇️ Added complexity of container repository |
-| |⬆️ Mature container ecosystem and tooling |
-| | | ⬇️ _Perceived additional cold start_ ❓ Let's validate this assumption!|
+| |⬆️ Mature container ecosystem and tooling | ⬇️ _Perceived additional cold start_ ❓ Let's validate this assumption!|
 
 ## What this project provides
 This stack deploys a matrix of Lambda Functions with a simulated Data Science workload, including common dependencies:
@@ -60,20 +59,28 @@ Three different packaging methods are evaluated:
 
 ```bash
 npm install
+pip install -r requirements.txt -r requirements-dev.txt
 cdk deploy
 ```
 
 ## Running a test
 
-The stack deploys multiple Lambda functions, all of which are triggered by a single SQS queue. A script is provided to send messages in bulk to this queue. Invoke with:
+The stack deploys multiple Lambda functions. A script is provided to invoke functions concurrently in bulk. Invoke with:
 
 ```bash
-./scripts/send-messages.py <NUMBER_OF_MESSAGES>
+./scripts/invoke_functions.py <NUMBER_OF_MESSAGES_PER_FUNCTION>
 ```
 
 For example:
 ```bash
-./scripts/send-messages.py 10000
+./scripts/invoke_functions.py 1000
+```
+
+## Ensuring Cold Starts
+You can prevent warm starts from previous runs by running the `ensure-cold.py` script. This will update an environment variable in each function's configuration. Once you run a test, this will ensure that initial invocations of each Lambda sandbox are cold but warm starts will than start to occur again when these sandboxes are free for subsequent invocations.
+
+```bash
+./scripts/ensure-cold.py
 ```
 
 ## Monitoring results

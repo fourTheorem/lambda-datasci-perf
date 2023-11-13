@@ -1,7 +1,6 @@
 import base64
 import sys
 from datetime import datetime, timedelta
-from random import randint
 from time import sleep
 import json
 import numpy as np
@@ -15,25 +14,23 @@ logger = Logger()
 tracer = Tracer()
 metrics = Metrics()
 
-np.random.seed(0)
+sleep_time = 300
 
 @logger.inject_lambda_context
 @tracer.capture_lambda_handler
 @metrics.log_metrics(capture_cold_start_metric=True)
-def handle_event(event, context):
+def handle_event(_event, _context):
     logger.info('Python version', extra={"version": sys.version})
     # Generate some random data
     order_ids = range(1, 1001)
     product_categories = ['Electronics', 'Clothing', 'Home & Kitchen', 'Sports', 'Toys']
     category = np.random.choice(product_categories, 1000)
     quantities = np.random.randint(1, 11, size=1000)
-
     unit_prices = np.random.uniform(10, 1000, size=1000).round(2)
 
     # Generate random purchase dates within the last year
     base_date = datetime.today()
     purchase_dates = [base_date - timedelta(days=np.random.randint(0, 365)) for _ in range(1000)]
-
 
     # Create the DataFrame
     df = pd.DataFrame({
@@ -56,7 +53,6 @@ def handle_event(event, context):
     logger.info(f"DataFrame:\n{df}")
     logger.info(f"Parquet data: {str(parquet_data)}")
 
-    sleep_time = randint(180, 600) 
     logger.info('Sleeping', extra={'sleep_time': sleep_time})
     result = {
         'statusCode': 200,

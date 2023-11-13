@@ -1,6 +1,6 @@
-pandas
-pyarrow
-numpy
-s3fs
-aws_lambda_powertools
-aws_xray_sdk
+aws-lambda-powertools==2.26.1
+aws-xray-sdk==2.12.1
+numpy==1.24.4
+pandas==2.0.3
+pyarrow==14.0.1
+s3fs==2023.10.0
