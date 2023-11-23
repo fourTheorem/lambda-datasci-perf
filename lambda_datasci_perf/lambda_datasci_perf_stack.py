@@ -66,56 +66,71 @@ class LambdaDatasciPerfStack(Stack):
             timeout=Duration.seconds(TIMEOUT_SECONDS),
             retry_attempts=0,
             memory_size=FUNCTION_MEMORY,
+            architecture=lamb.Architecture.X86_64,
             tracing=lamb.Tracing.ACTIVE,
         )
 
         functions_by_name: dict[str, lamb.Function] = {}
         for (runtime_label, runtime_props) in runtimes.items():
             runtime = runtime_props["Runtime"]
-            function_name = f"perf_zip_{runtime_label}"
-            functions_by_name[function_name] = lamb.Function(
-                self,
-                function_name,
-                **common_function_kwargs,
-                environment={
-                    "POWERTOOLS_METRICS_NAMESPACE": POWERTOOLS_METRICS_NAMESPACE,
-                    "POWERTOOLS_SERVICE_NAME": _service_name_from_function_name(function_name)
+            asset_code = lamb.Code.from_asset(
+                path.join(path.dirname(__file__), "function"),
+                bundling={
+                    # We explicitly set the right architecture version of the image because
+                    # runtime.bundling_image is not arch-specific and may result in arm64 .so's being deployed
+                    # to x86_64 lambda functions
+                    "image": DockerImage.from_registry(f"public.ecr.aws/sam/build-{runtime.name}:latest-x86_64"),
+                    "platform": ecr_assets.Platform.LINUX_AMD64.platform,
+                    "command": [
+                        "bash",
+                        "-c",
+                        "pip install -r requirements-lambda.txt -t /asset-output && " 
+                            "find /asset-output -type f -name \"*.so\" -exec strip {} \; && "
+                            "find /asset-output -wholename \"*/tests/*\" -type f -delete && "
+                            "find /asset-output -regex '^.*\(__pycache__\|\.py[co]\)$' -delete && "
+                            "rm -rf /asset-output/boto* && "
+                            "rm -rf /asset-output/urllib3* && "
+                            "cp -au . /asset-output"
+                    ],
                 },
-                architecture=lamb.Architecture.X86_64,
-                code=lamb.Code.from_asset(
-                    path.join(path.dirname(__file__), "function"),
-                    bundling={
-                        # We explicitly set the right architecture version of the image because
-                        # runtime.bundling_image is not arch-specific and may result in arm64 .so's being deployed
-                        # to x86_64 lambda functions
-                        "image": DockerImage.from_registry(f"public.ecr.aws/sam/build-{runtime.name}:latest-x86_64"),
-                        "platform": ecr_assets.Platform.LINUX_AMD64.platform,
-                        "command": [
-                            "bash",
-                            "-c",
-                            "pip install -r requirements-lambda.txt -t /asset-output && " 
-                                "find /asset-output -type f -name \"*.so\" -exec strip {} \; && "
-                                "find /asset-output -wholename \"*/tests/*\" -type f -delete && "
-                                "find /asset-output -regex '^.*\(__pycache__\|\.py[co]\)$' -delete && "
-                                "rm -rf /asset-output/boto* && "
-                                "rm -rf /asset-output/urllib3* && "
-                                "cp -au . /asset-output"
-                        ],
-                    },
-                ),
+            )
+            zip_function_name = f"perf_zip_{runtime_label}"
+            environment = {
+                "POWERTOOLS_METRICS_NAMESPACE": POWERTOOLS_METRICS_NAMESPACE,
+                "POWERTOOLS_SERVICE_NAME": _service_name_from_function_name(zip_function_name)
+            }
+            functions_by_name[zip_function_name] = lamb.Function(
+                self,
+                zip_function_name,
+                **common_function_kwargs,
+                environment=environment,
+                code=asset_code,
                 handler='handler.handle_event',
                 runtime=runtime,
-                function_name=function_name,
+                function_name=zip_function_name,
+            )
+            
+            # Create a function to measure module import times on cold starts
+            measure_zip_function_name = f'{zip_function_name}_import_measure'
+            lamb.Function(
+                self,
+                measure_zip_function_name,
+                **common_function_kwargs,
+                environment=environment,
+                code=asset_code,
+                handler='measurement_handler.handle_event',
+                runtime=runtime,
+                function_name=measure_zip_function_name
             )
 
-            function_name = f"perf_zip_layers_{runtime_label}"
-            functions_by_name[function_name] = lamb.Function(
+            zip_layers_function_name = f"perf_zip_layers_{runtime_label}"
+            functions_by_name[zip_layers_function_name] = lamb.Function(
                 self,
-                function_name,
+                zip_layers_function_name,
                 **common_function_kwargs,
                 environment={
                     "POWERTOOLS_METRICS_NAMESPACE": POWERTOOLS_METRICS_NAMESPACE,
-                    "POWERTOOLS_SERVICE_NAME": _service_name_from_function_name(function_name)
+                    "POWERTOOLS_SERVICE_NAME": _service_name_from_function_name(zip_layers_function_name)
                 },
                 code=lamb.Code.from_asset(
                     path.join(path.dirname(__file__), 'function'),
@@ -132,24 +147,49 @@ class LambdaDatasciPerfStack(Stack):
                 ],
                 handler='handler.handle_event',
                 runtime=runtime,
-                function_name=function_name,
+                function_name=zip_layers_function_name,
+            )
+            
+            # Create a function to measure module import times on cold starts
+            measure_zip_layers_function_name = f'{zip_layers_function_name}_import_measure'
+            lamb.Function(
+                self,
+                measure_zip_layers_function_name,
+                **common_function_kwargs,
+                environment=environment,
+                code=asset_code,
+                handler='measurement_handler.handle_event',
+                runtime=runtime,
+                function_name=measure_zip_layers_function_name
             )
 
-            function_name = f"perf_image_{runtime_label}"
-            functions_by_name[function_name] = lamb.DockerImageFunction(
+            image_function_name = f"perf_image_{runtime_label}"
+            functions_by_name[image_function_name] = lamb.DockerImageFunction(
                 self,
                 f'perf_image_{runtime_label}',
                 **common_function_kwargs,
                 environment={
                     "POWERTOOLS_METRICS_NAMESPACE": POWERTOOLS_METRICS_NAMESPACE,
-                    "POWERTOOLS_SERVICE_NAME": _service_name_from_function_name(function_name)
+                    "POWERTOOLS_SERVICE_NAME": _service_name_from_function_name(image_function_name)
                 },
                 code=lamb.DockerImageCode.from_image_asset(
                     path.dirname(__file__),
                     build_args={'PYTHON_VERSION': runtime_props['ImageVersion']},
                     platform=ecr_assets.Platform.LINUX_AMD64
                 ),
-                function_name=function_name,
+                function_name=image_function_name,
+            )
+            # Create a function to measure module import times on cold starts
+            measure_image_function_name = f'{image_function_name}_import_measure'
+            lamb.Function(
+                self,
+                measure_image_function_name,
+                **common_function_kwargs,
+                environment=environment,
+                code=asset_code,
+                handler='measurement_handler.handle_event',
+                runtime=runtime,
+                function_name=measure_image_function_name
             )
 
         dash = cloudwatch.Dashboard(
