@@ -1,20 +1,27 @@
 import base64
+import os
 import sys
+
 from datetime import datetime, timedelta
 from time import sleep
 import json
+import boto3
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from aws_lambda_powertools import Logger, Tracer, Metrics
 
-# Initialize Logger and Tracer from aws_lambda_powertools
 logger = Logger()
 tracer = Tracer()
 metrics = Metrics()
 
+session = boto3.session.Session()
+s3_client = session.client('s3')
+
 sleep_time = 300
+
+BUCKET_NAME = os.environ['BUCKET_NAME']
 
 @logger.inject_lambda_context
 @tracer.capture_lambda_handler
@@ -53,7 +60,11 @@ def handle_event(_event, _context):
     logger.info(f"DataFrame:\n{df}")
     logger.info(f"Parquet data: {str(parquet_data)}")
 
+    key = f"{_context.function_name}/{_context.aws_request_id}.parquet"
+    s3_client.put_object(Bucket=BUCKET_NAME, Key=key, Body=parquet_data)
+
     logger.info('Sleeping', extra={'sleep_time': sleep_time})
+
     result = {
         'statusCode': 200,
         'body': json.dumps({

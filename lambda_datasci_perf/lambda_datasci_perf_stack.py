@@ -3,9 +3,10 @@ from aws_cdk import (
     DockerImage,
     Duration,
     Stack,
+    aws_iam as iam,
     aws_lambda as lamb,
     aws_lambda_event_sources as event_sources,
-    aws_sqs as sqs,
+    aws_s3 as s3,
     aws_ecr_assets as ecr_assets,
     aws_cloudwatch as cloudwatch,
 )
@@ -35,6 +36,8 @@ class LambdaDatasciPerfStack(Stack):
                 }
             }
 
+        bucket = s3.Bucket(self, 'bucket')
+
         runtimes = {
             "Python38": {
                 "Runtime": lamb.Runtime.PYTHON_3_8,
@@ -60,6 +63,11 @@ class LambdaDatasciPerfStack(Stack):
                 "PowertoolsLayer": f"arn:aws:lambda:{self.region}:017000801446:layer:AWSLambdaPowertoolsPythonV2:46",
                 "ImageVersion": "3.11"
             },
+        }
+
+        common_envs = { 
+            "BUCKET_NAME": bucket.bucket_name,
+            "POWERTOOLS_METRICS_NAMESPACE": POWERTOOLS_METRICS_NAMESPACE
         }
 
         common_function_kwargs = dict(
@@ -95,15 +103,14 @@ class LambdaDatasciPerfStack(Stack):
                 },
             )
             zip_function_name = f"perf_zip_{runtime_label}"
-            environment = {
-                "POWERTOOLS_METRICS_NAMESPACE": POWERTOOLS_METRICS_NAMESPACE,
-                "POWERTOOLS_SERVICE_NAME": _service_name_from_function_name(zip_function_name)
-            }
             functions_by_name[zip_function_name] = lamb.Function(
                 self,
                 zip_function_name,
                 **common_function_kwargs,
-                environment=environment,
+                environment={
+                    **common_envs,
+                    "POWERTOOLS_SERVICE_NAME": _service_name_from_function_name(zip_function_name)
+                },
                 code=asset_code,
                 handler='handler.handle_event',
                 runtime=runtime,
@@ -116,7 +123,10 @@ class LambdaDatasciPerfStack(Stack):
                 self,
                 measure_zip_function_name,
                 **common_function_kwargs,
-                environment=environment,
+                environment={
+                    **common_envs,
+                    "POWERTOOLS_SERVICE_NAME": measure_zip_function_name
+                },
                 code=asset_code,
                 handler='measurement_handler.handle_event',
                 runtime=runtime,
@@ -129,7 +139,7 @@ class LambdaDatasciPerfStack(Stack):
                 zip_layers_function_name,
                 **common_function_kwargs,
                 environment={
-                    "POWERTOOLS_METRICS_NAMESPACE": POWERTOOLS_METRICS_NAMESPACE,
+                    **common_envs,
                     "POWERTOOLS_SERVICE_NAME": _service_name_from_function_name(zip_layers_function_name)
                 },
                 code=lamb.Code.from_asset(
@@ -151,16 +161,19 @@ class LambdaDatasciPerfStack(Stack):
             )
             
             # Create a function to measure module import times on cold starts
-            measure_zip_layers_function_name = f'{zip_layers_function_name}_import_measure'
+            measure_image_function_name = f'{zip_layers_function_name}_import_measure'
             lamb.Function(
                 self,
-                measure_zip_layers_function_name,
+                measure_image_function_name,
                 **common_function_kwargs,
-                environment=environment,
+                environment={
+                    **common_envs,
+                    "POWERTOOLS_SERVICE_NAME": measure_image_function_name
+                },
                 code=asset_code,
                 handler='measurement_handler.handle_event',
                 runtime=runtime,
-                function_name=measure_zip_layers_function_name
+                function_name=measure_image_function_name
             )
 
             image_function_name = f"perf_image_{runtime_label}"
@@ -169,8 +182,8 @@ class LambdaDatasciPerfStack(Stack):
                 f'perf_image_{runtime_label}',
                 **common_function_kwargs,
                 environment={
-                    "POWERTOOLS_METRICS_NAMESPACE": POWERTOOLS_METRICS_NAMESPACE,
-                    "POWERTOOLS_SERVICE_NAME": _service_name_from_function_name(image_function_name)
+                    **common_envs,
+                    "POWERTOOLS_SERVICE_NAME": _service_name_from_function_name(zip_layers_function_name)
                 },
                 code=lamb.DockerImageCode.from_image_asset(
                     path.dirname(__file__),
@@ -185,12 +198,23 @@ class LambdaDatasciPerfStack(Stack):
                 self,
                 measure_image_function_name,
                 **common_function_kwargs,
-                environment=environment,
+                environment={
+                    **common_envs,
+                    "POWERTOOLS_SERVICE_NAME": measure_image_function_name
+                },
                 code=asset_code,
                 handler='measurement_handler.handle_event',
                 runtime=runtime,
                 function_name=measure_image_function_name
             )
+
+        for func in functions_by_name.values():
+            func.role.add_to_principal_policy(iam.PolicyStatement(
+                actions=['s3:PutObject'],
+                resources=[f'{bucket.bucket_arn}/*'],
+                effect=iam.Effect.ALLOW
+            ))
+            bucket.grant_read_write(func)
 
         dash = cloudwatch.Dashboard(
             self, "LambdaDatasciPerfDashboard", 
@@ -227,7 +251,9 @@ class LambdaDatasciPerfStack(Stack):
             set_period_to_time_range=True,
             width=24,
             height=6,
-            metrics=[functions_by_name[function_name].metric_invocations(statistic=cloudwatch.Statistic.SUM.name, label=function_name) for function_name in sorted(functions_by_name.keys())]
+            metrics=[functions_by_name[function_name].metric_invocations(
+                statistic=cloudwatch.Statistic.SUM.name, label=function_name
+            ) for function_name in sorted(functions_by_name.keys())]
         ))
 
         dash.add_widgets(cloudwatch.SingleValueWidget(
