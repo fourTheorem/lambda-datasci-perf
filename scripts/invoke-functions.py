@@ -9,13 +9,14 @@ from concurrent.futures import ThreadPoolExecutor, wait
 
 def invoke_functions(count_per_function):
     session = boto3.session.Session()
+    print(f"Using region {session.region_name}")
     lamb = session.client("lambda")
     pag = lamb.get_paginator("list_functions")
 
     function_names = []
 
     for page in pag.paginate():
-        function_names.extend([f["FunctionName"] for f in page["Functions"] if f["FunctionName"].startswith("perf_")])
+        function_names.extend([f["FunctionName"] for f in page["Functions"] if f["FunctionName"].startswith("perf_") and "_measure_" not in f["FunctionName"]])
 
     progs = {}
     for function_name in function_names:
