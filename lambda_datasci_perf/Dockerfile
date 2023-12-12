@@ -5,6 +5,6 @@ WORKDIR ${LAMBDA_TASK_ROOT}
 COPY function/requirements-lambda.txt ${LAMBDA_TASK_ROOT}
 RUN pip install -r requirements-lambda.txt
 
-COPY function/handler.py ${LAMBDA_TASK_ROOT}
+COPY function/*.py ${LAMBDA_TASK_ROOT}
 
 CMD [ "handler.handle_event" ]

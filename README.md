@@ -37,7 +37,7 @@ Lambda ZIP packaging limits (250 MB, including all layers) presents a common cha
 This gives a total of 332M before any other libraries are added.
 
 Common workarounds to this are:
-1. Using container image packaging, providing a much more liberal package size of 10MB
+1. Using container image packaging, providing a much more liberal package size of 10GB
 2. Stripping non-essential parts of packages before deployment. This includes stripping debug symbols from shared libraries (`.so`), removing unit tests and documentation, and removing the `.pyc` precompiled bytecode
 3. Using Lambda Layers for these dependencies. Layers still count towards the restrictive 250MB limit, but layer providers can handle the stripping and minimisation of packages so you don't have to.
 
@@ -50,11 +50,11 @@ First, what other factors might we consider before evaluating images vs. ZIP on 
 |**Method** |**Pros** |**Cons** |
 |-- |-- |-- |
 |**ZIP** | ⬆️ Use native runtime dependency bundling |⬇️ 250MB limit |
-| |⬆️ Packaging and deployment can be slower | ⬇️ ZIP archive is not optimised for fast rebuild when a subset has changed |
+| |⬆ AWS is responsible for maintenance and security of the runtime | ⬇️ ️ Packaging and deployment can be slower ZIP archive is not optimised for fast rebuild when a subset has changed |
 | | | |
 |**ZIP with Layers** |⬆️ Packaging optimisation handled by layer provider | ⬇️ 250MB limit |
 | |⬆️ Deployment faster when dependencies are unchanged | ⬇️ No semantic versioning |
-| | | ⬇️ Less control over dependency versions |
+| |⬆ AWS is responsible for maintenance and security of the runtime  | ⬇️ Less control over dependency versions |
 | | | ⬇️ Reliant on provider to continue maintenance |
 | | |
 |**Container Image** |⬆️ 10 GB limit | ⬇️ Runtime security and maintenance is your responsibility |

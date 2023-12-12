@@ -1,25 +1,56 @@
-import base64
-import sys
-from datetime import datetime, timedelta
-from time import sleep
-import json
-import numpy as np
-import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
-from aws_lambda_powertools import Logger, Tracer, Metrics
+from timed_import import ImportTimer
+from timing import Timer
 
-# Initialize Logger and Tracer from aws_lambda_powertools
-logger = Logger()
-tracer = Tracer()
-metrics = Metrics()
+import_timer = ImportTimer()
 
-sleep_time = 300
+base64 = import_timer.import_module('base64')
+os = import_timer.import_module('os')
+sys = import_timer.import_module('sys')
+
+dt = import_timer.import_module('datetime')
+datetime = dt.datetime
+timedelta = dt.timedelta
+
+json = import_timer.import_module('json')
+boto3 = import_timer.import_module('boto3')
+np = import_timer.import_module('numpy')
+pd = import_timer.import_module('pandas')
+pa = import_timer.import_module('pyarrow')
+pq = import_timer.import_module('pyarrow.parquet').parquet
+powertools = import_timer.import_module('aws_lambda_powertools')
+
+powertools_timer = Timer()
+with powertools_timer:
+    logger = powertools.Logger()
+    tracer = powertools.Tracer()
+    metrics = powertools.Metrics()
+powertools_init_time = powertools_timer.elapsed_us
+
+boto3_timer = Timer()
+with boto3_timer:
+    session = boto3.session.Session()
+    s3_client = session.client('s3')
+boto3_init_time = boto3_timer.elapsed_us
+
+cold_start = powertools.metrics.provider.cold_start
+
+BUCKET_NAME = os.environ['BUCKET_NAME']
 
 @logger.inject_lambda_context
 @tracer.capture_lambda_handler
 @metrics.log_metrics(capture_cold_start_metric=True)
 def handle_event(_event, _context):
+    if (cold_start):
+        all_timings = {
+            **import_timer.timings,
+            "powertools_init_time": powertools_init_time,
+            "boto3_init_time": boto3_init_time
+        }
+        logger.info("module_timings", extra={"timings": all_timings})
+        for mod, elapsed_us in all_timings.items():
+            module_identifier = mod.replace('.', '_')
+            metrics.add_metric(name=f"module_load_{module_identifier}", unit="Microseconds", value=elapsed_us)
+
     logger.info('Python version', extra={"version": sys.version})
     # Generate some random data
     order_ids = range(1, 1001)
@@ -44,16 +75,17 @@ def handle_event(_event, _context):
     # Format the 'Purchase Date' column to a more readable format
     df['Purchase Date'] = pd.to_datetime(df['Purchase Date']).dt.strftime('%Y-%m-%d')
 
-    # Create the Parquet data
+    # Create parquet data
     table = pa.Table.from_pandas(df)
     buf = pa.BufferOutputStream()
     pq.write_table(table, buf)
     parquet_data = buf.getvalue().to_pybytes()
 
-    logger.info(f"DataFrame:\n{df}")
-    logger.info(f"Parquet data: {str(parquet_data)}")
+    logger.info("DataFrame", extra={"df_head": df.head()})
 
-    logger.info('Sleeping', extra={'sleep_time': sleep_time})
+    key = f"{_context.function_name}/{_context.aws_request_id}.parquet"
+    s3_client.put_object(Bucket=BUCKET_NAME, Key=key, Body=parquet_data)
+
     result = {
         'statusCode': 200,
         'body': json.dumps({
